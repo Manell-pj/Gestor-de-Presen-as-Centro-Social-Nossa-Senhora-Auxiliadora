@@ -1,6 +1,9 @@
 <?php
-session_start();
 require_once 'config.php';
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/funcionarios_estado.php';
+
+$utilizadorSessao = require_login($conn);
 
 function e($value)
 {
@@ -20,8 +23,8 @@ function movimento_label($tipo)
 {
     $labels = [
         'entrada' => 'Entrada',
-        'saida' => 'Saida',
-        'inicio_pausa' => 'Inicio de pausa',
+        'saida' => 'Saída',
+        'inicio_pausa' => 'Início de pausa',
         'fim_pausa' => 'Fim de pausa',
     ];
 
@@ -40,141 +43,94 @@ function movimento_badge($tipo)
     return $classes[$tipo] ?? 'secondary';
 }
 
-function movimento_permitido($ultimoTipo, $novoTipo)
-{
-    if ($novoTipo === 'entrada') {
-        return $ultimoTipo === null || $ultimoTipo === 'saida';
-    }
+$missingTables = [];
 
-    if ($novoTipo === 'inicio_pausa') {
-        return $ultimoTipo === 'entrada' || $ultimoTipo === 'fim_pausa';
+foreach (['funcionarios', 'registos_ponto'] as $table) {
+    if (!fe_table_exists($conn, $table)) {
+        $missingTables[] = $table;
     }
-
-    if ($novoTipo === 'fim_pausa') {
-        return $ultimoTipo === 'inicio_pausa';
-    }
-
-    if ($novoTipo === 'saida') {
-        return $ultimoTipo === 'entrada' || $ultimoTipo === 'fim_pausa';
-    }
-
-    return false;
 }
 
-function mensagem_movimento_invalido($ultimoTipo, $novoTipo)
-{
-    if ($ultimoTipo === null && $novoTipo !== 'entrada') {
-        return 'O primeiro registo deve ser uma entrada.';
+$temFuncionarioRegisto = empty($missingTables) && fe_column_exists($conn, 'registos_ponto', 'funcionario_id');
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'registar_ponto') {
+    if (!$temFuncionarioRegisto) {
+        redirect_with_message('danger', 'Execute a migration antes de registar ponto por funcionário.');
     }
 
-    if ($ultimoTipo === 'entrada' && $novoTipo === 'entrada') {
-        return 'Nao pode registar duas entradas seguidas sem uma saida.';
+    $funcionarioId = (int) ($_POST['funcionario_id'] ?? 0);
+    $tipo = $_POST['tipo'] ?? '';
+    $dataHora = trim($_POST['data_hora'] ?? '');
+    $observacoes = trim($_POST['observacoes'] ?? '');
+    $tiposPermitidos = ['entrada', 'saida', 'inicio_pausa', 'fim_pausa'];
+
+    if ($funcionarioId <= 0 || !in_array($tipo, $tiposPermitidos, true) || $dataHora === '') {
+        redirect_with_message('danger', 'Preencha funcionário, movimento e data/hora.');
     }
 
-    if ($ultimoTipo === 'saida' && $novoTipo === 'saida') {
-        return 'Nao pode registar duas saidas seguidas sem nova entrada.';
+    $dt = DateTime::createFromFormat('Y-m-d\TH:i', $dataHora);
+    if (!$dt) {
+        redirect_with_message('danger', 'Data/hora inválida.');
     }
 
-    if ($ultimoTipo === 'inicio_pausa' && $novoTipo !== 'fim_pausa') {
-        return 'Depois de iniciar a pausa deve registar o fim da pausa.';
-    }
+    $dataHoraSql = $dt->format('Y-m-d H:i:s');
+    $dataReferencia = $dt->format('Y-m-d');
+    $observacoes = $observacoes === '' ? null : $observacoes;
 
-    if ($ultimoTipo === 'fim_pausa' && $novoTipo === 'fim_pausa') {
-        return 'Nao pode registar dois fins de pausa seguidos.';
-    }
-
-    return 'Este movimento nao e valido tendo em conta o ultimo registo.';
-}
-
-$utilizadorAutenticadoId = (int) ($_SESSION['utilizador_id'] ?? $_SESSION['user_id'] ?? 0);
-$utilizadorAutenticado = null;
-$isAdmin = false;
-
-if ($utilizadorAutenticadoId > 0) {
-    $stmt = mysqli_prepare($conn, 'SELECT id, nome, email, estado FROM utilizadores WHERE id = ? LIMIT 1');
-    mysqli_stmt_bind_param($stmt, 'i', $utilizadorAutenticadoId);
+    $stmt = mysqli_prepare($conn, "SELECT id FROM funcionarios WHERE id = ? AND estado = 'ativo' LIMIT 1");
+    mysqli_stmt_bind_param($stmt, 'i', $funcionarioId);
     mysqli_stmt_execute($stmt);
     $result = mysqli_stmt_get_result($stmt);
-    $utilizadorAutenticado = mysqli_fetch_assoc($result);
+    $funcionarioExiste = mysqli_fetch_assoc($result);
     mysqli_stmt_close($stmt);
 
-    if ($utilizadorAutenticado) {
-        $stmt = mysqli_prepare($conn, "SELECT COUNT(*) AS total
-            FROM utilizador_papeis up
-            INNER JOIN papeis p ON p.id = up.papel_id
-            WHERE up.utilizador_id = ? AND p.slug = 'administrador'");
-        mysqli_stmt_bind_param($stmt, 'i', $utilizadorAutenticadoId);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $row = mysqli_fetch_assoc($result);
-        mysqli_stmt_close($stmt);
-        $isAdmin = (int) ($row['total'] ?? 0) > 0;
+    if (!$funcionarioExiste) {
+        redirect_with_message('danger', 'Funcionário inválido ou inativo.');
     }
+
+    $temDataReferencia = fe_column_exists($conn, 'registos_ponto', 'data_referencia');
+
+    if ($temDataReferencia) {
+        $stmt = mysqli_prepare($conn, "INSERT INTO registos_ponto
+            (funcionario_id, tipo, data_hora, data_referencia, origem, estado, observacoes)
+            VALUES (?, ?, ?, ?, 'manual', 'valido', ?)");
+        mysqli_stmt_bind_param($stmt, 'issss', $funcionarioId, $tipo, $dataHoraSql, $dataReferencia, $observacoes);
+    } else {
+        $stmt = mysqli_prepare($conn, "INSERT INTO registos_ponto
+            (funcionario_id, tipo, data_hora, origem, estado, observacoes)
+            VALUES (?, ?, ?, 'manual', 'valido', ?)");
+        mysqli_stmt_bind_param($stmt, 'isss', $funcionarioId, $tipo, $dataHoraSql, $observacoes);
+    }
+
+    mysqli_stmt_execute($stmt);
+    mysqli_stmt_close($stmt);
+
+    redirect_with_message('success', movimento_label($tipo) . ' registada com sucesso.');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $acao = $_POST['acao'] ?? '';
-
-    if ($acao === 'registar_ponto') {
-        if (!$utilizadorAutenticado || $utilizadorAutenticado['estado'] !== 'ativo') {
-            redirect_with_message('danger', 'Precisa de estar autenticado com um utilizador ativo para registar ponto.');
-        }
-
-        $tipo = $_POST['tipo'] ?? '';
-        $tiposPermitidos = ['entrada', 'saida', 'inicio_pausa', 'fim_pausa'];
-
-        if (!in_array($tipo, $tiposPermitidos, true)) {
-            redirect_with_message('danger', 'Tipo de movimento invalido.');
-        }
-
-        $stmt = mysqli_prepare($conn, "SELECT tipo
-            FROM registos_ponto
-            WHERE utilizador_id = ? AND estado IN ('valido', 'corrigido')
-            ORDER BY data_hora DESC, id DESC
-            LIMIT 1");
-        mysqli_stmt_bind_param($stmt, 'i', $utilizadorAutenticadoId);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $ultimoRegisto = mysqli_fetch_assoc($result);
-        mysqli_stmt_close($stmt);
-
-        $ultimoTipo = $ultimoRegisto['tipo'] ?? null;
-
-        if (!movimento_permitido($ultimoTipo, $tipo)) {
-            redirect_with_message('danger', mensagem_movimento_invalido($ultimoTipo, $tipo));
-        }
-
-        $stmt = mysqli_prepare($conn, "INSERT INTO registos_ponto (utilizador_id, tipo, data_hora, origem, estado, criado_por)
-            VALUES (?, ?, NOW(), 'manual', 'valido', ?)");
-        mysqli_stmt_bind_param($stmt, 'isi', $utilizadorAutenticadoId, $tipo, $utilizadorAutenticadoId);
-        mysqli_stmt_execute($stmt);
-        mysqli_stmt_close($stmt);
-
-        redirect_with_message('success', movimento_label($tipo) . ' registada com sucesso.');
-    }
-}
-
-$hoje = date('Y-m-d');
+$funcionarios = [];
 $registos = [];
 
-if ($utilizadorAutenticado) {
-    if ($isAdmin) {
-        $sql = "SELECT rp.id, rp.tipo, rp.data_hora, rp.origem, rp.estado, u.nome AS utilizador_nome
-            FROM registos_ponto rp
-            INNER JOIN utilizadores u ON u.id = rp.utilizador_id
-            WHERE DATE(rp.data_hora) = CURDATE()
-            ORDER BY rp.data_hora DESC, rp.id DESC";
-        $stmt = mysqli_prepare($conn, $sql);
-    } else {
-        $sql = "SELECT rp.id, rp.tipo, rp.data_hora, rp.origem, rp.estado, u.nome AS utilizador_nome
-            FROM registos_ponto rp
-            INNER JOIN utilizadores u ON u.id = rp.utilizador_id
-            WHERE rp.utilizador_id = ? AND DATE(rp.data_hora) = CURDATE()
-            ORDER BY rp.data_hora DESC, rp.id DESC";
-        $stmt = mysqli_prepare($conn, $sql);
-        mysqli_stmt_bind_param($stmt, 'i', $utilizadorAutenticadoId);
+if (empty($missingTables)) {
+    $stmt = mysqli_prepare($conn, "SELECT id, numero_mecanografico, nome, funcao, codigo_biometrico
+        FROM funcionarios
+        WHERE estado = 'ativo'
+        ORDER BY nome ASC");
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    while ($row = mysqli_fetch_assoc($result)) {
+        $funcionarios[] = $row;
     }
+    mysqli_stmt_close($stmt);
+}
 
+if ($temFuncionarioRegisto) {
+    $stmt = mysqli_prepare($conn, "SELECT rp.id, rp.tipo, rp.data_hora, rp.origem, rp.estado, rp.observacoes,
+               f.nome AS funcionario_nome, f.numero_mecanografico
+        FROM registos_ponto rp
+        INNER JOIN funcionarios f ON f.id = rp.funcionario_id
+        WHERE DATE(rp.data_hora) = CURDATE()
+        ORDER BY rp.data_hora DESC, rp.id DESC");
     mysqli_stmt_execute($stmt);
     $result = mysqli_stmt_get_result($stmt);
     while ($row = mysqli_fetch_assoc($result)) {
@@ -213,7 +169,7 @@ $alertMessage = $_GET['message'] ?? '';
                                 <i class="icon-arrow-right"></i>
                             </li>
                             <li class="nav-item">
-                                <a href="ponto.php">Registo de Ponto</a>
+                                <a href="ponto.php">Ponto</a>
                             </li>
                         </ul>
                     </div>
@@ -225,10 +181,9 @@ $alertMessage = $_GET['message'] ?? '';
                         </div>
                     <?php endif; ?>
 
-                    <?php if (!$utilizadorAutenticado): ?>
+                    <?php if (!empty($missingTables) || !$temFuncionarioRegisto): ?>
                         <div class="alert alert-warning" role="alert">
-                            Nao existe utilizador autenticado na sessao. Depois de criares o login, define
-                            <strong>$_SESSION['utilizador_id']</strong> com o ID do utilizador autenticado.
+                            Execute a migration <code>database/2026_05_15_lar_idosos_assiduidade.sql</code> para ativar registos por funcionário.
                         </div>
                     <?php endif; ?>
 
@@ -236,34 +191,49 @@ $alertMessage = $_GET['message'] ?? '';
                         <div class="col-md-4">
                             <div class="card">
                                 <div class="card-header">
-                                    <h4 class="card-title">Movimentos</h4>
+                                    <h4 class="card-title">Correção manual</h4>
                                 </div>
                                 <div class="card-body">
-                                    <p class="text-muted mb-4">
-                                        <?php if ($utilizadorAutenticado): ?>
-                                            <?php echo e($utilizadorAutenticado['nome']); ?> - <?php echo e(date('d/m/Y')); ?>
-                                        <?php else: ?>
-                                            Sessao nao autenticada
-                                        <?php endif; ?>
-                                    </p>
-
-                                    <form method="post" class="d-grid gap-2">
+                                    <form method="post" class="needs-validation" novalidate>
                                         <input type="hidden" name="acao" value="registar_ponto">
-                                        <button type="submit" name="tipo" value="entrada" class="btn btn-success" <?php echo !$utilizadorAutenticado ? 'disabled' : ''; ?>>
-                                            <i class="fa fa-sign-in-alt"></i>
-                                            Entrada
-                                        </button>
-                                        <button type="submit" name="tipo" value="inicio_pausa" class="btn btn-warning" <?php echo !$utilizadorAutenticado ? 'disabled' : ''; ?>>
-                                            <i class="fa fa-coffee"></i>
-                                            Inicio de pausa
-                                        </button>
-                                        <button type="submit" name="tipo" value="fim_pausa" class="btn btn-info" <?php echo !$utilizadorAutenticado ? 'disabled' : ''; ?>>
-                                            <i class="fa fa-play"></i>
-                                            Fim de pausa
-                                        </button>
-                                        <button type="submit" name="tipo" value="saida" class="btn btn-danger" <?php echo !$utilizadorAutenticado ? 'disabled' : ''; ?>>
-                                            <i class="fa fa-sign-out-alt"></i>
-                                            Saida
+                                        <div class="mb-3">
+                                            <label class="form-label">Funcionário *</label>
+                                            <select name="funcionario_id" class="form-select" required <?php echo !$temFuncionarioRegisto ? 'disabled' : ''; ?>>
+                                                <option value="">Selecionar funcionário</option>
+                                                <?php foreach ($funcionarios as $funcionario): ?>
+                                                    <option value="<?php echo (int) $funcionario['id']; ?>">
+                                                        <?php echo e($funcionario['nome']); ?>
+                                                        <?php if ($funcionario['numero_mecanografico']): ?>
+                                                            (<?php echo e($funcionario['numero_mecanografico']); ?>)
+                                                        <?php endif; ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <div class="invalid-feedback">Selecione um funcionário.</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Movimento *</label>
+                                            <select name="tipo" class="form-select" required <?php echo !$temFuncionarioRegisto ? 'disabled' : ''; ?>>
+                                                <option value="">Selecionar movimento</option>
+                                                <option value="entrada">Entrada</option>
+                                                <option value="saida">Saída</option>
+                                                <option value="inicio_pausa">Início de pausa</option>
+                                                <option value="fim_pausa">Fim de pausa</option>
+                                            </select>
+                                            <div class="invalid-feedback">Selecione o movimento.</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Data/hora *</label>
+                                            <input type="datetime-local" name="data_hora" class="form-control" value="<?php echo e(date('Y-m-d\TH:i')); ?>" required <?php echo !$temFuncionarioRegisto ? 'disabled' : ''; ?>>
+                                            <div class="invalid-feedback">Indique a data/hora.</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Observações</label>
+                                            <textarea name="observacoes" class="form-control" rows="3" <?php echo !$temFuncionarioRegisto ? 'disabled' : ''; ?>></textarea>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary w-100" <?php echo !$temFuncionarioRegisto ? 'disabled' : ''; ?>>
+                                            <i class="fa fa-save"></i>
+                                            Guardar movimento
                                         </button>
                                     </form>
                                 </div>
@@ -273,24 +243,15 @@ $alertMessage = $_GET['message'] ?? '';
                         <div class="col-md-8">
                             <div class="card">
                                 <div class="card-header">
-                                    <div class="d-flex align-items-center">
-                                        <h4 class="card-title">
-                                            Registos de hoje
-                                            <?php if ($isAdmin): ?>
-                                                <span class="badge badge-primary ms-2">Todos os utilizadores</span>
-                                            <?php endif; ?>
-                                        </h4>
-                                    </div>
+                                    <h4 class="card-title">Registos de hoje</h4>
                                 </div>
                                 <div class="card-body">
                                     <div class="table-responsive">
                                         <table id="tabela-ponto" class="display table table-striped table-hover">
                                             <thead>
                                                 <tr>
-                                                    <?php if ($isAdmin): ?>
-                                                        <th>Utilizador</th>
-                                                    <?php endif; ?>
-                                                    <th>Data</th>
+                                                    <th>Funcionário</th>
+                                                    <th>N.º mec.</th>
                                                     <th>Hora</th>
                                                     <th>Movimento</th>
                                                     <th>Origem</th>
@@ -299,13 +260,10 @@ $alertMessage = $_GET['message'] ?? '';
                                             </thead>
                                             <tbody>
                                                 <?php foreach ($registos as $registo): ?>
-                                                    <?php $dataHora = new DateTime($registo['data_hora']); ?>
                                                     <tr>
-                                                        <?php if ($isAdmin): ?>
-                                                            <td><?php echo e($registo['utilizador_nome']); ?></td>
-                                                        <?php endif; ?>
-                                                        <td><?php echo e($dataHora->format('d/m/Y')); ?></td>
-                                                        <td><?php echo e($dataHora->format('H:i:s')); ?></td>
+                                                        <td><?php echo e($registo['funcionario_nome']); ?></td>
+                                                        <td><?php echo e($registo['numero_mecanografico'] ?: '-'); ?></td>
+                                                        <td><?php echo e(date('H:i:s', strtotime($registo['data_hora']))); ?></td>
                                                         <td>
                                                             <span class="badge badge-<?php echo e(movimento_badge($registo['tipo'])); ?>">
                                                                 <?php echo e(movimento_label($registo['tipo'])); ?>
@@ -333,8 +291,8 @@ $alertMessage = $_GET['message'] ?? '';
     <script>
         $(document).ready(function () {
             $('#tabela-ponto').DataTable({
-                pageLength: 10,
-                order: [[<?php echo $isAdmin ? 2 : 1; ?>, 'desc']],
+                pageLength: 25,
+                order: [[2, 'desc']],
                 language: {
                     search: 'Pesquisar:',
                     lengthMenu: 'Mostrar _MENU_ registos',
@@ -343,11 +301,20 @@ $alertMessage = $_GET['message'] ?? '';
                     zeroRecords: 'Nenhum registo encontrado',
                     paginate: {
                         first: 'Primeiro',
-                        last: 'Ultimo',
+                        last: 'Último',
                         next: 'Seguinte',
                         previous: 'Anterior'
                     }
                 }
+            });
+
+            $('.needs-validation').on('submit', function (event) {
+                if (!this.checkValidity()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+
+                $(this).addClass('was-validated');
             });
         });
     </script>

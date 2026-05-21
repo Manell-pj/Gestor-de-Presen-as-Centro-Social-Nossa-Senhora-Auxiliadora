@@ -24,22 +24,22 @@
         <div class="sidebar-content">
             <?php $paginaAtual = basename($_SERVER['PHP_SELF']); ?>
             <ul class="nav nav-secondary">
-                <li class="nav-item <?php echo in_array($paginaAtual, ['principal.php', 'dashboard.php'], true) ? 'active' : ''; ?>">
-                    <a href="dashboard.php">
+                <li class="nav-item <?php echo in_array($paginaAtual, ['principal.php', 'dashboard.php', 'index.php'], true) ? 'active' : ''; ?>">
+                    <a href="principal.php">
                         <i class="fas fa-home"></i>
                         <p>Dashboard</p>
                     </a>
                 </li>
-                <li class="nav-item <?php echo $paginaAtual === 'utilizadores.php' ? 'active' : ''; ?>">
-                    <a href="utilizadores.php">
+                <li class="nav-item <?php echo in_array($paginaAtual, ['funcionarios.php'], true) ? 'active' : ''; ?>">
+                    <a href="funcionarios.php">
                         <i class="fas fa-users"></i>
-                        <p>Utilizadores</p>
+                        <p>Funcionários</p>
                     </a>
                 </li>
                 <li class="nav-item <?php echo $paginaAtual === 'departamentos.php' ? 'active' : ''; ?>">
                     <a href="departamentos.php">
                         <i class="fas fa-building"></i>
-                        <p>Departamentos</p>
+                        <p>Equipas</p>
                     </a>
                 </li>
                 <li class="nav-item <?php echo $paginaAtual === 'ponto.php' ? 'active' : ''; ?>">
@@ -51,7 +51,7 @@
                 <li class="nav-item <?php echo $paginaAtual === 'ausencias.php' ? 'active' : ''; ?>">
                     <a href="ausencias.php">
                         <i class="fas fa-calendar-alt"></i>
-                        <p>Ausencias</p>
+                        <p>Ausências</p>
                     </a>
                 </li>
                 <li class="nav-item <?php echo $paginaAtual === 'turnos.php' ? 'active' : ''; ?>">
@@ -60,10 +60,28 @@
                         <p>Turnos</p>
                     </a>
                 </li>
+                <li class="nav-item <?php echo $paginaAtual === 'escala_mensal.php' ? 'active' : ''; ?>">
+                    <a href="escala_mensal.php">
+                        <i class="fas fa-calendar-check"></i>
+                        <p>Escala Mensal</p>
+                    </a>
+                </li>
                 <li class="nav-item <?php echo $paginaAtual === 'banco_horas.php' ? 'active' : ''; ?>">
                     <a href="banco_horas.php">
                         <i class="fas fa-hourglass-half"></i>
                         <p>Banco de Horas</p>
+                    </a>
+                </li>
+                <li class="nav-item <?php echo $paginaAtual === 'relatorios_horas.php' ? 'active' : ''; ?>">
+                    <a href="relatorios_horas.php">
+                        <i class="fas fa-file-alt"></i>
+                        <p>Relatórios de Horas</p>
+                    </a>
+                </li>
+                <li class="nav-item <?php echo $paginaAtual === 'utilizadores.php' ? 'active' : ''; ?>">
+                    <a href="utilizadores.php">
+                        <i class="fas fa-user-lock"></i>
+                        <p>Utilizadores</p>
                     </a>
                 </li>
             </ul>

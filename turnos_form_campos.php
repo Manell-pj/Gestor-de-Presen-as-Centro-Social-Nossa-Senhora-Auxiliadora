@@ -5,7 +5,7 @@
         <div class="invalid-feedback">Indique o nome do turno.</div>
     </div>
     <div class="col-md-6 mb-3">
-        <label class="form-label">Codigo</label>
+        <label class="form-label">Código</label>
         <input type="text" name="codigo" class="form-control">
     </div>
     <div class="col-md-3 mb-3">
@@ -13,11 +13,11 @@
         <input type="time" name="hora_entrada" class="form-control" required>
     </div>
     <div class="col-md-3 mb-3">
-        <label class="form-label">Hora de saida *</label>
+        <label class="form-label">Hora de saída *</label>
         <input type="time" name="hora_saida" class="form-control" required>
     </div>
     <div class="col-md-3 mb-3">
-        <label class="form-label">Inicio pausa</label>
+        <label class="form-label">Início pausa</label>
         <input type="time" name="inicio_pausa" class="form-control">
     </div>
     <div class="col-md-3 mb-3">
@@ -25,11 +25,11 @@
         <input type="time" name="fim_pausa" class="form-control">
     </div>
     <div class="col-md-4 mb-3">
-        <label class="form-label">Tolerancia de atraso (min)</label>
+        <label class="form-label">Tolerância de atraso (min)</label>
         <input type="number" name="tolerancia_entrada_min" class="form-control" min="0" value="0">
     </div>
     <div class="col-md-4 mb-3">
-        <label class="form-label">Tolerancia de saida (min)</label>
+        <label class="form-label">Tolerância de saída (min)</label>
         <input type="number" name="tolerancia_saida_min" class="form-control" min="0" value="0">
     </div>
     <div class="col-md-4 mb-3">

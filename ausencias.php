@@ -1,6 +1,9 @@
 <?php
 session_start();
 require_once 'config.php';
+require_once __DIR__ . '/includes/auth.php';
+
+$utilizadorSessao = require_login($conn);
 
 function e($value)
 {
@@ -62,11 +65,11 @@ function guardar_anexo_seguro($file)
     }
 
     if ($file['error'] !== UPLOAD_ERR_OK) {
-        throw new RuntimeException('Nao foi possivel carregar o anexo.');
+        throw new RuntimeException('Não foi possível carregar o anexo.');
     }
 
     if ($file['size'] > 5 * 1024 * 1024) {
-        throw new RuntimeException('O anexo nao pode exceder 5 MB.');
+        throw new RuntimeException('O anexo não pode exceder 5 MB.');
     }
 
     $extensoesPermitidas = ['pdf', 'jpg', 'jpeg', 'png'];
@@ -74,27 +77,27 @@ function guardar_anexo_seguro($file)
     $extensao = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
     if (!in_array($extensao, $extensoesPermitidas, true)) {
-        throw new RuntimeException('Formato de anexo invalido. Use PDF, JPG ou PNG.');
+        throw new RuntimeException('Formato de anexo inválido. Use PDF, JPG ou PNG.');
     }
 
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->file($file['tmp_name']);
 
     if (!in_array($mime, $mimePermitidos, true)) {
-        throw new RuntimeException('O conteudo do ficheiro nao corresponde a um formato permitido.');
+        throw new RuntimeException('O conteúdo do ficheiro não corresponde a um formato permitido.');
     }
 
     $diretorio = __DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'ausencias';
 
     if (!is_dir($diretorio) && !mkdir($diretorio, 0755, true)) {
-        throw new RuntimeException('Nao foi possivel preparar a pasta de anexos.');
+        throw new RuntimeException('Não foi possível preparar a pasta de anexos.');
     }
 
     $nomeSeguro = bin2hex(random_bytes(16)) . '.' . $extensao;
     $destino = $diretorio . DIRECTORY_SEPARATOR . $nomeSeguro;
 
     if (!move_uploaded_file($file['tmp_name'], $destino)) {
-        throw new RuntimeException('Nao foi possivel guardar o anexo.');
+        throw new RuntimeException('Não foi possível guardar o anexo.');
     }
 
     return 'uploads/ausencias/' . $nomeSeguro;
@@ -103,9 +106,9 @@ function guardar_anexo_seguro($file)
 function garantir_tipos_ausencia($conn)
 {
     $tipos = [
-        ['Ferias', 'ferias', 'Pedido de ferias', 1, 1, 0],
-        ['Falta Justificada', 'falta-justificada', 'Falta com justificacao', 1, 0, 1],
-        ['Baixa Medica', 'baixa-medica', 'Baixa por motivo de saude', 1, 0, 1],
+        ['Férias', 'ferias', 'Pedido de férias', 1, 1, 0],
+        ['Falta Justificada', 'falta-justificada', 'Falta com justificação', 1, 0, 1],
+        ['Baixa Médica', 'baixa-medica', 'Baixa por motivo de saúde', 1, 0, 1],
         ['Folga', 'folga', 'Pedido de folga', 1, 0, 0],
     ];
 
@@ -161,11 +164,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $motivo = trim($_POST['motivo'] ?? '');
 
         if ($tipoAusenciaId <= 0 || $dataInicio === '' || $dataFim === '' || $motivo === '') {
-            redirect_with_message('danger', 'Preencha todos os campos obrigatorios.');
+            redirect_with_message('danger', 'Preencha todos os campos obrigatórios.');
         }
 
         if ($dataFim < $dataInicio) {
-            redirect_with_message('danger', 'A data fim nao pode ser anterior a data inicio.');
+            redirect_with_message('danger', 'A data fim não pode ser anterior a data início.');
         }
 
         $stmt = mysqli_prepare($conn, 'SELECT id FROM tipos_ausencia WHERE id = ? AND ativo = 1 LIMIT 1');
@@ -176,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mysqli_stmt_close($stmt);
 
         if (!$tipoExiste) {
-            redirect_with_message('danger', 'Tipo de ausencia invalido.');
+            redirect_with_message('danger', 'Tipo de ausência inválido.');
         }
 
         try {
@@ -192,17 +195,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mysqli_stmt_execute($stmt);
             mysqli_stmt_close($stmt);
 
-            redirect_with_message('success', 'Pedido registado com sucesso. Ficou pendente de aprovacao.');
+            redirect_with_message('success', 'Pedido registado com sucesso. Ficou pendente de aprovação.');
         } catch (RuntimeException $e) {
             redirect_with_message('danger', $e->getMessage());
         } catch (mysqli_sql_exception $e) {
-            redirect_with_message('danger', 'Nao foi possivel registar o pedido.');
+            redirect_with_message('danger', 'Não foi possível registar o pedido.');
         }
     }
 
     if ($acao === 'aprovar' || $acao === 'recusar') {
         if (!$temPermissaoAprovar) {
-            redirect_with_message('danger', 'Nao tem permissao para aprovar ou recusar pedidos.');
+            redirect_with_message('danger', 'Não tem permissão para aprovar ou recusar pedidos.');
         }
 
         $pedidoId = (int) ($_POST['id'] ?? 0);
@@ -210,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $observacoes = trim($_POST['observacoes_aprovacao'] ?? '');
 
         if ($pedidoId <= 0) {
-            redirect_with_message('danger', 'Pedido invalido.');
+            redirect_with_message('danger', 'Pedido inválido.');
         }
 
         $stmt = mysqli_prepare($conn, "UPDATE pedidos_ausencia
@@ -222,7 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mysqli_stmt_close($stmt);
 
         if ($linhasAfetadas < 1) {
-            redirect_with_message('danger', 'O pedido ja foi tratado ou nao existe.');
+            redirect_with_message('danger', 'O pedido já foi tratado ou não existe.');
         }
 
         redirect_with_message('success', $acao === 'aprovar' ? 'Pedido aprovado com sucesso.' : 'Pedido recusado com sucesso.');
@@ -291,7 +294,7 @@ $alertMessage = $_GET['message'] ?? '';
             <div class="container">
                 <div class="page-inner">
                     <div class="page-header">
-                        <h3 class="fw-bold mb-3">Ausencias</h3>
+                        <h3 class="fw-bold mb-3">Ausências</h3>
                         <ul class="breadcrumbs mb-3">
                             <li class="nav-home">
                                 <a href="principal.php">
@@ -302,7 +305,7 @@ $alertMessage = $_GET['message'] ?? '';
                                 <i class="icon-arrow-right"></i>
                             </li>
                             <li class="nav-item">
-                                <a href="ausencias.php">Ausencias</a>
+                                <a href="ausencias.php">Ausências</a>
                             </li>
                         </ul>
                     </div>
@@ -316,7 +319,7 @@ $alertMessage = $_GET['message'] ?? '';
 
                     <?php if (!$utilizadorAutenticado): ?>
                         <div class="alert alert-warning" role="alert">
-                            Nao existe utilizador autenticado na sessao. Depois de criares o login, define
+                            Não existe utilizador autenticado na sessão. Depois de criares o login, define
                             <strong>$_SESSION['utilizador_id']</strong> com o ID do utilizador autenticado.
                         </div>
                     <?php endif; ?>
@@ -325,9 +328,9 @@ $alertMessage = $_GET['message'] ?? '';
                         <div class="card-header">
                             <div class="d-flex align-items-center">
                                 <h4 class="card-title">
-                                    Historico de pedidos
+                                    Histórico de pedidos
                                     <?php if ($temPermissaoAprovar): ?>
-                                        <span class="badge badge-primary ms-2">Aprovacao</span>
+                                        <span class="badge badge-primary ms-2">Aprovação</span>
                                     <?php endif; ?>
                                 </h4>
                                 <button class="btn btn-primary btn-round ms-auto" data-bs-toggle="modal" data-bs-target="#modalPedirAusencia" <?php echo !$utilizadorAutenticado ? 'disabled' : ''; ?>>
@@ -345,13 +348,13 @@ $alertMessage = $_GET['message'] ?? '';
                                                 <th>Colaborador</th>
                                             <?php endif; ?>
                                             <th>Tipo</th>
-                                            <th>Inicio</th>
+                                            <th>Início</th>
                                             <th>Fim</th>
                                             <th>Dias</th>
                                             <th>Estado</th>
                                             <th>Anexo</th>
                                             <?php if ($temPermissaoAprovar): ?>
-                                                <th style="width: 130px">Acoes</th>
+                                                <th style="width: 130px">Ações</th>
                                             <?php endif; ?>
                                         </tr>
                                     </thead>
@@ -412,7 +415,7 @@ $alertMessage = $_GET['message'] ?? '';
             <form method="post" enctype="multipart/form-data" class="modal-content needs-validation" novalidate>
                 <input type="hidden" name="acao" value="pedir">
                 <div class="modal-header border-0">
-                    <h5 class="modal-title">Novo pedido de ausencia</h5>
+                    <h5 class="modal-title">Novo pedido de ausência</h5>
                     <button type="button" class="close" data-bs-dismiss="modal" aria-label="Fechar">
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -427,12 +430,12 @@ $alertMessage = $_GET['message'] ?? '';
                                     <option value="<?php echo (int) $tipo['id']; ?>"><?php echo e($tipo['nome']); ?></option>
                                 <?php endforeach; ?>
                             </select>
-                            <div class="invalid-feedback">Selecione o tipo de ausencia.</div>
+                            <div class="invalid-feedback">Selecione o tipo de ausência.</div>
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Data inicio *</label>
+                            <label class="form-label">Data início *</label>
                             <input type="date" name="data_inicio" class="form-control" required>
-                            <div class="invalid-feedback">Indique a data inicio.</div>
+                            <div class="invalid-feedback">Indique a data início.</div>
                         </div>
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Data fim *</label>
@@ -447,7 +450,7 @@ $alertMessage = $_GET['message'] ?? '';
                         <div class="col-md-12 mb-3">
                             <label class="form-label">Anexo</label>
                             <input type="file" name="anexo" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
-                            <small class="form-text text-muted">PDF, JPG ou PNG ate 5 MB.</small>
+                            <small class="form-text text-muted">PDF, JPG ou PNG até 5 MB.</small>
                         </div>
                     </div>
                 </div>
@@ -476,8 +479,8 @@ $alertMessage = $_GET['message'] ?? '';
                             </button>
                         </div>
                         <div class="modal-body">
-                            <p>Confirmar aprovacao do pedido de <strong><?php echo e($pedido['utilizador_nome']); ?></strong>?</p>
-                            <label class="form-label">Observacoes</label>
+                            <p>Confirmar aprovação do pedido de <strong><?php echo e($pedido['utilizador_nome']); ?></strong>?</p>
+                            <label class="form-label">Observações</label>
                             <textarea name="observacoes_aprovacao" class="form-control" rows="3"></textarea>
                         </div>
                         <div class="modal-footer border-0">
@@ -528,7 +531,7 @@ $alertMessage = $_GET['message'] ?? '';
                     zeroRecords: 'Nenhum pedido encontrado',
                     paginate: {
                         first: 'Primeiro',
-                        last: 'Ultimo',
+                        last: 'Último',
                         next: 'Seguinte',
                         previous: 'Anterior'
                     }

@@ -1,5 +1,9 @@
 <?php
 require_once 'config.php';
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/funcionarios_estado.php';
+
+$utilizadorSessao = require_login($conn);
 
 function e($value)
 {
@@ -26,6 +30,24 @@ function nullable_text($value)
     return $value === '' ? null : $value;
 }
 
+function equipa_setor_padrao($conn)
+{
+    if (!fe_table_exists($conn, 'setores')) {
+        return null;
+    }
+
+    $stmt = mysqli_prepare($conn, 'SELECT id FROM setores WHERE ativo = 1 ORDER BY id ASC LIMIT 1');
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $row = mysqli_fetch_assoc($result);
+    mysqli_stmt_close($stmt);
+
+    return isset($row['id']) ? (int) $row['id'] : null;
+}
+
+$temEquipas = fe_table_exists($conn, 'equipas');
+$temSetorEquipa = $temEquipas && fe_column_exists($conn, 'equipas', 'setor_id');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $acao = $_POST['acao'] ?? '';
 
@@ -36,18 +58,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ativo = isset($_POST['ativo']) ? 1 : 0;
 
         if ($nome === '') {
-            redirect_with_message('danger', 'Preencha o nome do departamento.');
+            redirect_with_message('danger', 'Preencha o nome da equipa.');
         }
 
         try {
-            $stmt = mysqli_prepare($conn, 'INSERT INTO departamentos (nome, codigo, descricao, ativo) VALUES (?, ?, ?, ?)');
-            mysqli_stmt_bind_param($stmt, 'sssi', $nome, $codigo, $descricao, $ativo);
+            if ($temSetorEquipa) {
+                $setorPadraoId = equipa_setor_padrao($conn);
+                $stmt = mysqli_prepare($conn, 'INSERT INTO equipas (setor_id, nome, codigo, descricao, ativo) VALUES (?, ?, ?, ?, ?)');
+                mysqli_stmt_bind_param($stmt, 'isssi', $setorPadraoId, $nome, $codigo, $descricao, $ativo);
+            } else {
+                $stmt = mysqli_prepare($conn, 'INSERT INTO equipas (nome, codigo, descricao, ativo) VALUES (?, ?, ?, ?)');
+                mysqli_stmt_bind_param($stmt, 'sssi', $nome, $codigo, $descricao, $ativo);
+            }
             mysqli_stmt_execute($stmt);
             mysqli_stmt_close($stmt);
 
-            redirect_with_message('success', 'Departamento criado com sucesso.');
+            redirect_with_message('success', 'Equipa criada com sucesso.');
         } catch (mysqli_sql_exception $e) {
-            redirect_with_message('danger', 'Nao foi possivel criar o departamento. Verifique se o codigo ja existe.');
+            redirect_with_message('danger', 'Não foi possível criar a equipa. Verifique se o código já existe.');
         }
     }
 
@@ -59,18 +87,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ativo = isset($_POST['ativo']) ? 1 : 0;
 
         if ($id <= 0 || $nome === '') {
-            redirect_with_message('danger', 'Preencha os campos obrigatorios.');
+            redirect_with_message('danger', 'Preencha os campos obrigatórios.');
         }
 
         try {
-            $stmt = mysqli_prepare($conn, 'UPDATE departamentos SET nome = ?, codigo = ?, descricao = ?, ativo = ? WHERE id = ?');
+            $stmt = mysqli_prepare($conn, 'UPDATE equipas SET nome = ?, codigo = ?, descricao = ?, ativo = ? WHERE id = ?');
             mysqli_stmt_bind_param($stmt, 'sssii', $nome, $codigo, $descricao, $ativo, $id);
             mysqli_stmt_execute($stmt);
             mysqli_stmt_close($stmt);
 
-            redirect_with_message('success', 'Departamento atualizado com sucesso.');
+            redirect_with_message('success', 'Equipa atualizada com sucesso.');
         } catch (mysqli_sql_exception $e) {
-            redirect_with_message('danger', 'Nao foi possivel atualizar o departamento. Verifique se o codigo ja existe.');
+            redirect_with_message('danger', 'Não foi possível atualizar a equipa. Verifique se o código já existe.');
         }
     }
 
@@ -78,10 +106,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int) ($_POST['id'] ?? 0);
 
         if ($id <= 0) {
-            redirect_with_message('danger', 'Departamento invalido.');
+            redirect_with_message('danger', 'Equipa inválida.');
         }
 
-        $stmt = mysqli_prepare($conn, 'SELECT COUNT(*) AS total FROM utilizadores WHERE departamento_id = ?');
+        $stmt = mysqli_prepare($conn, 'SELECT COUNT(*) AS total FROM funcionarios WHERE equipa_id = ?');
         mysqli_stmt_bind_param($stmt, 'i', $id);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
@@ -89,18 +117,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mysqli_stmt_close($stmt);
 
         if ((int) $row['total'] > 0) {
-            redirect_with_message('danger', 'Nao e possivel remover este departamento porque existem utilizadores associados.');
+            redirect_with_message('danger', 'Não é possível remover esta equipa porque existem funcionários associados.');
         }
 
         try {
-            $stmt = mysqli_prepare($conn, 'DELETE FROM departamentos WHERE id = ?');
+            $stmt = mysqli_prepare($conn, 'DELETE FROM equipas WHERE id = ?');
             mysqli_stmt_bind_param($stmt, 'i', $id);
             mysqli_stmt_execute($stmt);
             mysqli_stmt_close($stmt);
 
-            redirect_with_message('success', 'Departamento removido com sucesso.');
+            redirect_with_message('success', 'Equipa removida com sucesso.');
         } catch (mysqli_sql_exception $e) {
-            redirect_with_message('danger', 'Nao foi possivel remover o departamento.');
+            redirect_with_message('danger', 'Não foi possível remover a equipa.');
         }
     }
 }
@@ -113,9 +141,9 @@ $sql = "SELECT
             d.descricao,
             d.ativo,
             d.created_at,
-            COUNT(u.id) AS total_utilizadores
-        FROM departamentos d
-        LEFT JOIN utilizadores u ON u.departamento_id = d.id
+            COUNT(u.id) AS total_funcionarios
+        FROM equipas d
+        LEFT JOIN funcionarios u ON u.equipa_id = d.id
         GROUP BY d.id, d.nome, d.codigo, d.descricao, d.ativo, d.created_at
         ORDER BY d.nome ASC";
 $stmt = mysqli_prepare($conn, $sql);
@@ -145,7 +173,7 @@ $alertMessage = $_GET['message'] ?? '';
             <div class="container">
                 <div class="page-inner">
                     <div class="page-header">
-                        <h3 class="fw-bold mb-3">Departamentos</h3>
+                        <h3 class="fw-bold mb-3">Equipas</h3>
                         <ul class="breadcrumbs mb-3">
                             <li class="nav-home">
                                 <a href="principal.php">
@@ -156,7 +184,7 @@ $alertMessage = $_GET['message'] ?? '';
                                 <i class="icon-arrow-right"></i>
                             </li>
                             <li class="nav-item">
-                                <a href="departamentos.php">Departamentos</a>
+                                <a href="departamentos.php">Equipas</a>
                             </li>
                         </ul>
                     </div>
@@ -171,33 +199,33 @@ $alertMessage = $_GET['message'] ?? '';
                     <div class="card">
                         <div class="card-header">
                             <div class="d-flex align-items-center">
-                                <h4 class="card-title">Lista de departamentos</h4>
-                                <button class="btn btn-primary btn-round ms-auto" data-bs-toggle="modal" data-bs-target="#modalCriarDepartamento">
+                                <h4 class="card-title">Lista de equipas</h4>
+                                <button class="btn btn-primary btn-round ms-auto" data-bs-toggle="modal" data-bs-target="#modalCriarEquipa">
                                     <i class="fa fa-plus"></i>
-                                    Adicionar departamento
+                                    Adicionar equipa
                                 </button>
                             </div>
                         </div>
                         <div class="card-body">
                             <div class="table-responsive">
-                                <table id="tabela-departamentos" class="display table table-striped table-hover">
+                                <table id="tabela-equipas" class="display table table-striped table-hover">
                                     <thead>
                                         <tr>
-                                            <th>Codigo</th>
+                                            <th>Código</th>
                                             <th>Nome</th>
-                                            <th>Descricao</th>
-                                            <th>Utilizadores</th>
+                                            <th>Descrição</th>
+                                            <th>Funcionários</th>
                                             <th>Estado</th>
-                                            <th style="width: 120px">Acoes</th>
+                                            <th style="width: 120px">Ações</th>
                                         </tr>
-                                    </thead>
+                                    </thead> 
                                     <tbody>
                                         <?php foreach ($departamentos as $departamento): ?>
                                             <tr>
                                                 <td><?php echo e($departamento['codigo'] ?: '-'); ?></td>
                                                 <td><?php echo e($departamento['nome']); ?></td>
                                                 <td><?php echo e($departamento['descricao'] ?: '-'); ?></td>
-                                                <td><?php echo (int) $departamento['total_utilizadores']; ?></td>
+                                                <td><?php echo (int) $departamento['total_funcionarios']; ?></td>
                                                 <td>
                                                     <?php if ((int) $departamento['ativo'] === 1): ?>
                                                         <span class="badge badge-success">Ativo</span>
@@ -207,10 +235,10 @@ $alertMessage = $_GET['message'] ?? '';
                                                 </td>
                                                 <td>
                                                     <div class="form-button-action">
-                                                        <button type="button" class="btn btn-link btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#modalEditarDepartamento<?php echo (int) $departamento['id']; ?>" title="Editar">
+                                                        <button type="button" class="btn btn-link btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#modalEditarEquipa<?php echo (int) $departamento['id']; ?>" title="Editar">
                                                             <i class="fa fa-edit"></i>
                                                         </button>
-                                                        <button type="button" class="btn btn-link btn-danger" data-bs-toggle="modal" data-bs-target="#modalRemoverDepartamento<?php echo (int) $departamento['id']; ?>" title="Remover">
+                                                        <button type="button" class="btn btn-link btn-danger" data-bs-toggle="modal" data-bs-target="#modalRemoverEquipa<?php echo (int) $departamento['id']; ?>" title="Remover">
                                                             <i class="fa fa-times"></i>
                                                         </button>
                                                     </div>
@@ -229,12 +257,12 @@ $alertMessage = $_GET['message'] ?? '';
         </div>
     </div>
 
-    <div class="modal fade" id="modalCriarDepartamento" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="modalCriarEquipa" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog" role="document">
             <form method="post" class="modal-content needs-validation" novalidate>
                 <input type="hidden" name="acao" value="criar">
                 <div class="modal-header border-0">
-                    <h5 class="modal-title">Adicionar departamento</h5>
+                    <h5 class="modal-title">Adicionar equipa</h5>
                     <button type="button" class="close" data-bs-dismiss="modal" aria-label="Fechar">
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -243,14 +271,14 @@ $alertMessage = $_GET['message'] ?? '';
                     <div class="mb-3">
                         <label class="form-label">Nome *</label>
                         <input type="text" name="nome" class="form-control" required>
-                        <div class="invalid-feedback">Indique o nome do departamento.</div>
+                        <div class="invalid-feedback">Indique o nome da equipa.</div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Codigo</label>
+                        <label class="form-label">Código</label>
                         <input type="text" name="codigo" class="form-control">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Descricao</label>
+                        <label class="form-label">Descrição</label>
                         <textarea name="descricao" class="form-control" rows="3"></textarea>
                     </div>
                     <div class="form-check">
@@ -267,13 +295,13 @@ $alertMessage = $_GET['message'] ?? '';
     </div>
 
     <?php foreach ($departamentos as $departamento): ?>
-        <div class="modal fade" id="modalEditarDepartamento<?php echo (int) $departamento['id']; ?>" tabindex="-1" aria-hidden="true">
+        <div class="modal fade" id="modalEditarEquipa<?php echo (int) $departamento['id']; ?>" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog" role="document">
                 <form method="post" class="modal-content needs-validation" novalidate>
                     <input type="hidden" name="acao" value="editar">
                     <input type="hidden" name="id" value="<?php echo (int) $departamento['id']; ?>">
                     <div class="modal-header border-0">
-                        <h5 class="modal-title">Editar departamento</h5>
+                        <h5 class="modal-title">Editar equipa</h5>
                         <button type="button" class="close" data-bs-dismiss="modal" aria-label="Fechar">
                             <span aria-hidden="true">&times;</span>
                         </button>
@@ -282,14 +310,14 @@ $alertMessage = $_GET['message'] ?? '';
                         <div class="mb-3">
                             <label class="form-label">Nome *</label>
                             <input type="text" name="nome" class="form-control" value="<?php echo e($departamento['nome']); ?>" required>
-                            <div class="invalid-feedback">Indique o nome do departamento.</div>
+                            <div class="invalid-feedback">Indique o nome da equipa.</div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Codigo</label>
+                            <label class="form-label">Código</label>
                             <input type="text" name="codigo" class="form-control" value="<?php echo e($departamento['codigo']); ?>">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Descricao</label>
+                            <label class="form-label">Descrição</label>
                             <textarea name="descricao" class="form-control" rows="3"><?php echo e($departamento['descricao']); ?></textarea>
                         </div>
                         <div class="form-check">
@@ -298,36 +326,36 @@ $alertMessage = $_GET['message'] ?? '';
                         </div>
                     </div>
                     <div class="modal-footer border-0">
-                        <button type="submit" class="btn btn-primary">Guardar alteracoes</button>
+                        <button type="submit" class="btn btn-primary">Guardar alterações</button>
                         <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
                     </div>
                 </form>
             </div>
         </div>
 
-        <div class="modal fade" id="modalRemoverDepartamento<?php echo (int) $departamento['id']; ?>" tabindex="-1" aria-hidden="true">
+        <div class="modal fade" id="modalRemoverEquipa<?php echo (int) $departamento['id']; ?>" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog" role="document">
                 <form method="post" class="modal-content">
                     <input type="hidden" name="acao" value="remover">
                     <input type="hidden" name="id" value="<?php echo (int) $departamento['id']; ?>">
                     <div class="modal-header border-0">
-                        <h5 class="modal-title">Remover departamento</h5>
+                        <h5 class="modal-title">Remover equipa</h5>
                         <button type="button" class="close" data-bs-dismiss="modal" aria-label="Fechar">
                             <span aria-hidden="true">&times;</span>
                         </button>
                     </div>
                     <div class="modal-body">
-                        <?php if ((int) $departamento['total_utilizadores'] > 0): ?>
+                        <?php if ((int) $departamento['total_funcionarios'] > 0): ?>
                             <p class="mb-0">
-                                Este departamento tem <strong><?php echo (int) $departamento['total_utilizadores']; ?></strong>
-                                utilizador(es) associado(s), por isso nao pode ser removido.
+                                Esta equipa tem <strong><?php echo (int) $departamento['total_funcionarios']; ?></strong>
+                                funcionário(s) associado(s), por isso não pode ser removida.
                             </p>
                         <?php else: ?>
                             <p class="mb-0">Tem a certeza que pretende remover <strong><?php echo e($departamento['nome']); ?></strong>?</p>
                         <?php endif; ?>
                     </div>
                     <div class="modal-footer border-0">
-                        <?php if ((int) $departamento['total_utilizadores'] === 0): ?>
+                        <?php if ((int) $departamento['total_funcionarios'] === 0): ?>
                             <button type="submit" class="btn btn-danger">Remover</button>
                         <?php endif; ?>
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -340,17 +368,17 @@ $alertMessage = $_GET['message'] ?? '';
     <?php include 'includes/scripts.php'; ?>
     <script>
         $(document).ready(function () {
-            $('#tabela-departamentos').DataTable({
+            $('#tabela-equipas').DataTable({
                 pageLength: 10,
                 language: {
                     search: 'Pesquisar:',
                     lengthMenu: 'Mostrar _MENU_ registos',
                     info: 'A mostrar _START_ a _END_ de _TOTAL_ registos',
                     infoEmpty: 'Sem registos',
-                    zeroRecords: 'Nenhum departamento encontrado',
+                    zeroRecords: 'Nenhuma equipa encontrada',
                     paginate: {
                         first: 'Primeiro',
-                        last: 'Ultimo',
+                        last: 'Último',
                         next: 'Seguinte',
                         previous: 'Anterior'
                     }
